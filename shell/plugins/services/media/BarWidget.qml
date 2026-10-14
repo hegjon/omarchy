@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 
 BarWidget {
   id: root
@@ -125,16 +126,17 @@ BarWidget {
           width: Style.space(64)
           height: Style.space(64)
           radius: Style.spacing.labelGap
-          color: Style.normalFillFor(root.bar.foreground, Color.accent)
-          borderSpec: Border.controlSpec("normal", root.bar.foreground, Color.accent)
+          color: Style.normalFillFor(root.bar.foreground, Commons.Color.accent)
+          borderSpec: Border.controlSpec("normal", root.bar.foreground, Commons.Color.accent)
 
-          Image {
+          // Decode the art at the size it is drawn, not the size the player
+          // serves it at. The popup is built on every monitor at startup.
+          SizedImage {
             anchors.fill: parent
             anchors.margins: Style.space(2)
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            source: root.activePlayer && root.activePlayer.trackArtUrl ? root.activePlayer.trackArtUrl : ""
-            visible: source !== ""
+            crop: true
+            url: root.activePlayer && root.activePlayer.trackArtUrl ? root.activePlayer.trackArtUrl : ""
+            visible: url != ""
           }
 
           Text {
@@ -249,8 +251,8 @@ BarWidget {
             width: sourceList.width
             height: sourceInner.implicitHeight + Style.space(10)
             radius: Style.spacing.labelGap
-            color: selected ? Style.selectedFillFor(root.bar.foreground, Color.accent) : "transparent"
-            borderSpec: selected ? Border.controlSpec("normal", root.bar.foreground, Color.accent) : Border.none()
+            color: selected ? Style.selectedFillFor(root.bar.foreground, Commons.Color.accent) : "transparent"
+            borderSpec: selected ? Border.controlSpec("normal", root.bar.foreground, Commons.Color.accent) : Border.none()
 
             Row {
               id: sourceInner

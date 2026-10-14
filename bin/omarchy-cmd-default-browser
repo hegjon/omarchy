@@ -38,9 +38,11 @@ for config_dir in "${config_dirs[@]}"; do
       section && index($0, "x-scheme-handler/http=") == 1 { print substr($0, 23); exit }
     ' "$list")
 
+    # omarchy-browser.desktop only routes links back through
+    # omarchy-launch-browser, so the browser is whatever is listed after it.
     IFS=';' read -ra entries <<<"$entries"
     for entry in "${entries[@]}"; do
-      if [[ -n $entry ]] && installed "$entry"; then
+      if [[ -n $entry && $entry != "omarchy-browser.desktop" ]] && installed "$entry"; then
         echo "$entry"
         exit 0
       fi
@@ -49,13 +51,14 @@ for config_dir in "${config_dirs[@]}"; do
 done
 
 # Nothing set in a config dir: let xdg-settings search the data dirs and caches.
-# It consults $BROWSER too, which the session points back at omarchy-launch-browser.
-# xdg-utils does not know Hyprland and probes for XFCE with xprop, which starts
-# Xwayland where it is started on demand. X-Generic takes the same generic path
-# without the probe.
+# It consults $BROWSER too, which the session points back at omarchy-launch-browser,
+# and the desktop-specific list, which points at omarchy-browser.desktop. Asking
+# as X-Generic skips both that list and the xprop probe for XFCE that xdg-utils
+# runs for a desktop it does not know, which starts Xwayland where it is started
+# on demand.
 browser=$(env -u BROWSER XDG_CURRENT_DESKTOP=X-Generic xdg-settings get default-web-browser 2>/dev/null)
-if [[ -z $browser ]]; then
+if [[ -z $browser || $browser == "omarchy-browser.desktop" ]]; then
   browser=$(XDG_CURRENT_DESKTOP=X-Generic xdg-mime query default x-scheme-handler/https 2>/dev/null)
 fi
 
-[[ -n $browser ]] && echo "$browser"
+[[ -n $browser && $browser != "omarchy-browser.desktop" ]] && echo "$browser"

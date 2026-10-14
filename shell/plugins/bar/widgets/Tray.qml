@@ -4,6 +4,7 @@ import QtQuick.Controls
 import QtQuick.Effects
 import Quickshell.Services.SystemTray
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "TrayModel.js" as TrayModel
 
@@ -16,7 +17,7 @@ BarWidget {
   property bool trayMenuOpen: false
   property var activeTrayItem: null
   property var activeTrayAnchor: null
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property var pinnedIds: settings.pinned instanceof Array ? settings.pinned : []
   readonly property var hiddenIds: settings.hidden instanceof Array ? settings.hidden : []
@@ -27,10 +28,23 @@ BarWidget {
   readonly property int trayItemExtent: Style.bar.iconSlot
   readonly property int trayItemGap: 0
   readonly property int trayJoinGap: 0
-  readonly property int drawerExtent: drawerCount > 0 ? drawerCount * trayItemExtent + (drawerCount - 1) * trayItemGap : 0
+  // Bar widgets dragged into the tray section sit in the drawer after the
+  // app icons. The bar draws them into sectionHost, and its dropSpace is the
+  // empty place offered to drop the first one.
+  property Item sectionHost: null
+  readonly property int sectionCount: bar && bar.layoutConfig && Array.isArray(bar.layoutConfig.tray) ? bar.layoutConfig.tray.length : 0
+  readonly property real sectionExtent: sectionHost ? (vertical ? sectionHost.implicitHeight : sectionHost.implicitWidth) : 0
+  readonly property bool hasDrawer: allItems.length > 0 || sectionCount > 0 || barDragging
+  readonly property int drawerExtent: drawerCount * trayItemExtent + Math.max(0, drawerCount - 1) * trayItemGap + sectionExtent
+  // A widget being dragged along the bar opens the drawer, to show where it
+  // can go, and so does any panel open from the tray or the tray section.
+  readonly property bool barDragging: !!bar && bar.traySectionDragActive === true
+  readonly property bool holdOpen: trayMenuOpen || managePopupOpen || barDragging || (!!bar && bar.traySectionPopoutOpen === true)
+  // The mark under the bar sits under the icon whose menu is open.
+  readonly property Item openPanelIndicatorItem: trayMenuOpen ? activeTrayAnchor : null
   // Match Waybar's group/tray-expander drawer transition-duration.
   readonly property int animationDuration: 600
-  property real revealProgress: expanded ? 1 : 0
+  property real revealProgress: expanded || holdOpen ? 1 : 0
   readonly property real revealExtent: drawerExtent * revealProgress
 
   // Submenu drill-down state. QsMenuEntry.display() renders a *platform* menu,
@@ -210,7 +224,7 @@ BarWidget {
     persistTrayState(p, h)
   }
 
-  visible: pinnedItems.length > 0 || drawerCount > 0
+  visible: pinnedItems.length > 0 || hasDrawer
   clip: false
   implicitWidth: root.vertical ? root.barSize : trayContent.implicitWidth
   implicitHeight: root.vertical ? trayContent.implicitHeight : root.barSize
@@ -232,7 +246,7 @@ BarWidget {
       id: horizontalTrayRoot
 
       readonly property int pinnedWidth: pinnedRow.implicitWidth
-      readonly property int drawerBlockWidth: root.allItems.length > 0 ? expandIcon.implicitWidth + root.drawerExtent : 0
+      readonly property int drawerBlockWidth: root.hasDrawer ? expandIcon.implicitWidth + root.drawerExtent : 0
 
       implicitWidth: pinnedWidth + drawerBlockWidth
       implicitHeight: root.barSize
@@ -257,7 +271,7 @@ BarWidget {
         x: 0
         width: horizontalTrayRoot.drawerBlockWidth
         height: root.barSize
-        visible: root.allItems.length > 0
+        visible: root.hasDrawer
 
         HoverHandler {
           onHoveredChanged: root.expanded = hovered
@@ -294,6 +308,8 @@ BarWidget {
               model: root.drawerItems
               TrayItem {}
             }
+
+            SectionArea {}
           }
         }
       }
@@ -319,7 +335,7 @@ BarWidget {
       id: verticalTrayRoot
 
       readonly property int pinnedHeight: pinnedCol.implicitHeight
-      readonly property int drawerBlockHeight: root.allItems.length > 0 ? expandIcon.implicitHeight + root.drawerExtent : 0
+      readonly property int drawerBlockHeight: root.hasDrawer ? expandIcon.implicitHeight + root.drawerExtent : 0
 
       implicitWidth: root.barSize
       implicitHeight: pinnedHeight + drawerBlockHeight
@@ -339,7 +355,7 @@ BarWidget {
         y: 0
         width: root.barSize
         height: verticalTrayRoot.drawerBlockHeight
-        visible: root.allItems.length > 0
+        visible: root.hasDrawer
 
         HoverHandler {
           onHoveredChanged: root.expanded = hovered
@@ -377,6 +393,8 @@ BarWidget {
               model: root.drawerItems
               TrayItem {}
             }
+
+            SectionArea {}
           }
         }
       }
@@ -617,7 +635,7 @@ BarWidget {
             anchors.rightMargin: Style.space(10)
             anchors.verticalCenter: parent.verticalCenter
             height: 1
-            color: Color.popups.border
+            color: Commons.Color.popups.border
             opacity: 0.45
           }
         }
@@ -671,7 +689,7 @@ BarWidget {
                 anchors.rightMargin: Style.space(10)
                 anchors.verticalCenter: parent.verticalCenter
                 height: 1
-                color: Color.popups.border
+                color: Commons.Color.popups.border
                 opacity: 0.45
               }
 
@@ -795,6 +813,53 @@ BarWidget {
     }
   }
 
+  // The tray section's place in the drawer: the bar parents its widgets here,
+  // and while a widget is dragged with none here yet, an empty slot shows
+  // where to drop it.
+  component SectionArea: Item {
+    id: sectionArea
+    // The bar's widgets and the drop slot never show together, so both sit at
+    // the origin and the area takes the size of whichever is there.
+    implicitWidth: childrenRect.width
+    implicitHeight: childrenRect.height
+    // What the section's widgets take up. One hiding itself (an update badge
+    // with nothing to update) offers nowhere to drop, so that counts as empty.
+    readonly property real widgetsExtent: {
+      var size = 0
+      for (var i = 0; i < children.length; i++) {
+        var child = children[i]
+        if (child !== dropSpace && child.visible) size += root.vertical ? child.height : child.width
+      }
+      return size
+    }
+
+    property alias dropSpace: dropSpace
+
+    Component.onCompleted: root.sectionHost = sectionArea
+    // The bar can tear this area down after the widget itself is gone
+    // (a plugin rescan destroys them in its own order), so unregister
+    // only while the widget is still there to unregister from.
+    Component.onDestruction: if (root && root.sectionHost === sectionArea) root.sectionHost = null
+
+    Item {
+      id: dropSpace
+      readonly property string region: "tray"
+      readonly property string moduleName: ""
+      visible: root.barDragging && sectionArea.widgetsExtent === 0
+      width: visible ? root.trayItemExtent : 0
+      height: visible ? root.trayItemExtent : 0
+
+      Rectangle {
+        anchors.fill: parent
+        anchors.margins: Style.space(4)
+        radius: Style.space(4)
+        color: "transparent"
+        border.width: 1
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
+      }
+    }
+  }
+
   component TrayItem: Item {
     id: trayItemRoot
 
@@ -809,9 +874,10 @@ BarWidget {
     }
 
     TrayIcon {
-      anchors.centerIn: parent
-      width: Style.space(12)
-      height: Style.space(12)
+      x: (parent.width - width) / 2
+      y: (parent.height - height) / 2
+      width: Style.bar.iconSize
+      height: Style.bar.iconSize
       icon: trayItemRoot.modelData.icon
     }
 
